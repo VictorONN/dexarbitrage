@@ -16,19 +16,60 @@ contract Arbitrage {
         sushiRouter = IUniswapV2Router02(_sushiRouter);
     }
 
+    //called when you spot a price difference
     function startArbitrage(
         address token0,
         address token1,
         uint256 amount0,
         uint256 amount1
     ) external {
-        address pairAddress = IUniswapV2Factory(factory).getPair(token0, token1);
-        require(pairAddress != address(0), 'This pool does not exist');
+        address pairAddress =
+            IUniswapV2Factory(factory).getPair(token0, token1);
+        require(pairAddress != address(0), "This pool does not exist");
         IUniswapV2Pair(pairAddress).swap(
-            amount0, 
-            amount1, 
+            amount0,
+            amount1,
             address(this),
-            bytes('not empty')
-        )
+            bytes("not empty")
+        );
+    }
+
+    function uniswapV2Call(
+        address _sender,
+        uint256 _amount0,
+        uint256 _amount1,
+        bytes calldata _data
+    ) external {
+        address[] memory path = new address[](2);
+        uint256 amountToken = _amount0 == 0 ? _amount1 : _amount0;
+        address token0 = IUniswapV2Pair(msg.sender).token0();
+        address token1 = IUniswapV2Pair(msg.sender).token1();
+
+        require(
+            msg.sender == UniswapV2Library.pairFor(factory, token0, token1),
+            "Unathorized"
+        );
+        require(_amount0 == 0 || _amount1 == 0);
+
+        path[0] = _amount0 == 0 ? token1 : token0;
+        path[1] = _amount0 == 0 ? token0 : token1;
+
+        IERC20 token = IERC20(_amount0 == 0 ? token1 : token0);
+        token.approve(address(sushiRouter), amountToken);
+
+        uint256 amountRequired =
+            UniswapV2Library.getAmountsIn(factory, amountToken, path)[0];
+
+        uint256 amountReceived =
+            sushiRouter.swapExactTokensForTokens(
+                amountToken,
+                amountRequired,
+                path,
+                msg.sender,
+                deadline
+            )[1];
+        IERC20 otherToken = IERC20(_amount0 == 0 ? token0 : token1);
+        otherToken.transfer(msg.sender, amountRequired);
+        otherToken.transfer(tx.origin, amountReceived - amountRequired);
     }
 }
